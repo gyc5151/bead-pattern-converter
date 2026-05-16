@@ -107,6 +107,7 @@ button:disabled {
 .workspace {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr) 320px;
+  align-items: start;
   gap: 16px;
   padding: 16px;
 }
@@ -262,6 +263,7 @@ input[type="range"] {
 
 .preview-panel {
   display: grid;
+  align-self: start;
   gap: 14px;
 }
 
@@ -496,7 +498,12 @@ tr:last-child td {
     padding: 14px;
   }
 
+  .preview-panel {
+    order: -1;
+  }
+
   .canvas-shell {
+    height: min(58vh, 520px);
     min-height: 300px;
   }
 }

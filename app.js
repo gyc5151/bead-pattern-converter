@@ -175,7 +175,7 @@
       window.print();
     });
     els.previewZoom.addEventListener("input", function () {
-      previewZoom = clampInt(els.previewZoom.value, 25, 250) / 100;
+      previewZoom = clampInt(els.previewZoom.value, 5, 250) / 100;
       updatePreviewZoom();
     });
     els.zoomOut.addEventListener("click", function () {
@@ -317,16 +317,44 @@
   }
 
   function handlePreviewWheel(event) {
-    if (!result || !(event.ctrlKey || event.metaKey)) {
+    if (!result) {
       return;
     }
+
     event.preventDefault();
-    var factor = Math.exp(-event.deltaY * 0.0024);
-    zoomPreviewAt(event.clientX, event.clientY, Math.max(0.05, Math.min(2.5, previewZoom * factor)));
+    var delta = normalizeWheelDelta(event);
+
+    if (event.ctrlKey || event.metaKey) {
+      var zoomDelta = delta.y || delta.x;
+      var factor = Math.exp(-zoomDelta * 0.0015);
+      zoomPreviewAt(event.clientX, event.clientY, Math.max(0.05, Math.min(2.5, previewZoom * factor)));
+      return;
+    }
+
+    scrollPreviewBy(delta.x, delta.y);
+  }
+
+  function normalizeWheelDelta(event) {
+    var unit = 1;
+    if (event.deltaMode === 1) {
+      unit = 16;
+    } else if (event.deltaMode === 2) {
+      unit = Math.max(1, els.canvasShell.clientHeight);
+    }
+    return {
+      x: event.deltaX * unit,
+      y: event.deltaY * unit
+    };
+  }
+
+  function scrollPreviewBy(deltaX, deltaY) {
+    var shell = els.canvasShell;
+    shell.scrollLeft += deltaX;
+    shell.scrollTop += deltaY;
   }
 
   function startPreviewPan(event) {
-    if (!result || event.button !== 0) {
+    if (!result || (event.pointerType === "mouse" && event.button !== 0)) {
       return;
     }
     if (event.target.closest("button, input, select, label")) {
@@ -354,6 +382,7 @@
     }
     els.canvasShell.scrollLeft = panState.scrollLeft - (event.clientX - panState.startX);
     els.canvasShell.scrollTop = panState.scrollTop - (event.clientY - panState.startY);
+    event.preventDefault();
   }
 
   function endPreviewPan(event) {
