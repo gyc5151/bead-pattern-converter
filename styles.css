@@ -324,6 +324,14 @@ input[type="range"] {
   background-color: #ffffff;
   background-position: 0 0, 0 8px, 8px -8px, -8px 0;
   background-size: 16px 16px;
+  cursor: grab;
+  overscroll-behavior: contain;
+  touch-action: none;
+  user-select: none;
+}
+
+.canvas-shell.is-panning {
+  cursor: grabbing;
 }
 
 .empty-state {

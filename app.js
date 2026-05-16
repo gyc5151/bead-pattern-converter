@@ -65,6 +65,7 @@
   var enabledGroups = new Set(["f", "g", "h", "i", "j", "k"]);
   var convertTimer = 0;
   var previewZoom = 1;
+  var panState = null;
   var BLANK_CELL = 65535;
 
   init();
@@ -175,6 +176,14 @@
       setPreviewZoom(Math.min(2.5, previewZoom + 0.1));
     });
     els.zoomFit.addEventListener("click", fitPreviewZoom);
+    els.canvasShell.addEventListener("wheel", handlePreviewWheel, { passive: false });
+    els.canvasShell.addEventListener("pointerdown", startPreviewPan);
+    window.addEventListener("pointermove", movePreviewPan);
+    window.addEventListener("pointerup", endPreviewPan);
+    window.addEventListener("pointercancel", endPreviewPan);
+    els.canvasShell.addEventListener("mousedown", startPreviewMousePan);
+    window.addEventListener("mousemove", movePreviewMousePan);
+    window.addEventListener("mouseup", endPreviewMousePan);
     els.resetPalette.addEventListener("click", function () {
       excludedColors.clear();
       enabledGroups = new Set(["f", "g", "h", "i", "j", "k"]);
@@ -280,6 +289,105 @@
     }
     els.patternCanvas.style.width = Math.max(1, Math.round(els.patternCanvas.width * previewZoom)) + "px";
     els.patternCanvas.style.height = Math.max(1, Math.round(els.patternCanvas.height * previewZoom)) + "px";
+  }
+
+  function zoomPreviewAt(clientX, clientY, nextZoom) {
+    if (!result) {
+      return;
+    }
+    var shellRect = els.canvasShell.getBoundingClientRect();
+    var offsetX = clientX - shellRect.left + els.canvasShell.scrollLeft;
+    var offsetY = clientY - shellRect.top + els.canvasShell.scrollTop;
+    var oldZoom = previewZoom;
+    setPreviewZoom(nextZoom);
+    var ratio = previewZoom / oldZoom;
+    els.canvasShell.scrollLeft = offsetX * ratio - (clientX - shellRect.left);
+    els.canvasShell.scrollTop = offsetY * ratio - (clientY - shellRect.top);
+  }
+
+  function handlePreviewWheel(event) {
+    if (!result || !(event.ctrlKey || event.metaKey)) {
+      return;
+    }
+    event.preventDefault();
+    var factor = Math.exp(-event.deltaY * 0.0024);
+    zoomPreviewAt(event.clientX, event.clientY, Math.max(0.25, Math.min(2.5, previewZoom * factor)));
+  }
+
+  function startPreviewPan(event) {
+    if (!result || event.button !== 0) {
+      return;
+    }
+    if (event.target.closest("button, input, select, label")) {
+      return;
+    }
+    panState = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: els.canvasShell.scrollLeft,
+      scrollTop: els.canvasShell.scrollTop
+    };
+    els.canvasShell.classList.add("is-panning");
+    try {
+      els.canvasShell.setPointerCapture(event.pointerId);
+    } catch (error) {
+      // Browser-synthesized pointer events may not be capturable; dragging still works through window listeners.
+    }
+    event.preventDefault();
+  }
+
+  function movePreviewPan(event) {
+    if (!panState || event.pointerId !== panState.pointerId) {
+      return;
+    }
+    els.canvasShell.scrollLeft = panState.scrollLeft - (event.clientX - panState.startX);
+    els.canvasShell.scrollTop = panState.scrollTop - (event.clientY - panState.startY);
+  }
+
+  function endPreviewPan(event) {
+    if (!panState || event.pointerId !== panState.pointerId) {
+      return;
+    }
+    if (els.canvasShell.hasPointerCapture && els.canvasShell.hasPointerCapture(event.pointerId)) {
+      els.canvasShell.releasePointerCapture(event.pointerId);
+    }
+    panState = null;
+    els.canvasShell.classList.remove("is-panning");
+  }
+
+  function startPreviewMousePan(event) {
+    if (panState || !result || event.button !== 0) {
+      return;
+    }
+    if (event.target.closest("button, input, select, label")) {
+      return;
+    }
+    panState = {
+      pointerId: "mouse",
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: els.canvasShell.scrollLeft,
+      scrollTop: els.canvasShell.scrollTop
+    };
+    els.canvasShell.classList.add("is-panning");
+    event.preventDefault();
+  }
+
+  function movePreviewMousePan(event) {
+    if (!panState || panState.pointerId !== "mouse") {
+      return;
+    }
+    els.canvasShell.scrollLeft = panState.scrollLeft - (event.clientX - panState.startX);
+    els.canvasShell.scrollTop = panState.scrollTop - (event.clientY - panState.startY);
+  }
+
+  function endPreviewMousePan() {
+    if (!panState || panState.pointerId !== "mouse") {
+      return;
+    }
+    panState = null;
+    els.canvasShell.classList.remove("is-panning");
   }
 
   function loadFile(file) {
