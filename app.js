@@ -26,6 +26,7 @@
     simplifyLevel: document.getElementById("simplifyLevel"),
     edgeStrength: document.getElementById("edgeStrength"),
     maxColors: document.getElementById("maxColors"),
+    featureSampling: document.getElementById("featureSampling"),
     dither: document.getElementById("dither"),
     backgroundColor: document.getElementById("backgroundColor"),
     cellSize: document.getElementById("cellSize"),
@@ -134,6 +135,7 @@
       els.simplifyLevel,
       els.edgeStrength,
       els.maxColors,
+      els.featureSampling,
       els.dither,
       els.backgroundColor,
       els.cellSize,
@@ -346,6 +348,7 @@
       simplifyLevel: simplifyLevel,
       edgeStrength: edgeStrength,
       maxColors: maxColors,
+      featureSampling: els.featureSampling.checked,
       dither: els.dither.checked,
       backgroundColor: els.backgroundColor.value,
       cellSize: cellSize,
@@ -356,16 +359,21 @@
   }
 
   function sampleImage(image, settings) {
+    var bg = hexToRgb(settings.backgroundColor);
+    var crop = getSourceCrop(image, settings);
+
+    if (settings.featureSampling) {
+      return sampleImageFeatureAware(image, settings, crop, bg);
+    }
+
     var canvas = document.createElement("canvas");
     canvas.width = settings.width;
     canvas.height = settings.height;
     var ctx = canvas.getContext("2d", { willReadFrequently: true });
-    var bg = hexToRgb(settings.backgroundColor);
     ctx.clearRect(0, 0, settings.width, settings.height);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
 
-    var crop = getSourceCrop(image, settings);
     var placement = getImagePlacement(
       crop.width,
       crop.height,
@@ -401,6 +409,258 @@
       blankMask: blankMask,
       crop: crop
     };
+  }
+
+  function sampleImageFeatureAware(image, settings, crop, bg) {
+    var scale = getFeatureSampleScale(settings.width, settings.height);
+    var highWidth = settings.width * scale;
+    var highHeight = settings.height * scale;
+    var canvas = document.createElement("canvas");
+    canvas.width = highWidth;
+    canvas.height = highHeight;
+    var ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.clearRect(0, 0, highWidth, highHeight);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+
+    var placement = getImagePlacement(crop.width, crop.height, highWidth, highHeight, settings.fitMode);
+    ctx.drawImage(
+      image,
+      crop.x,
+      crop.y,
+      crop.width,
+      crop.height,
+      placement.x,
+      placement.y,
+      placement.width,
+      placement.height
+    );
+
+    var data = ctx.getImageData(0, 0, highWidth, highHeight).data;
+    var samples = new Float32Array(settings.width * settings.height * 3);
+    var candidates = new Uint8Array(settings.width * settings.height);
+    var hardBlank = new Uint8Array(settings.width * settings.height);
+
+    for (var y = 0; y < settings.height; y += 1) {
+      for (var x = 0; x < settings.width; x += 1) {
+        var cell = y * settings.width + x;
+        var block = sampleFeatureBlock(data, highWidth, x * scale, y * scale, scale, bg);
+        var out = cell * 3;
+        samples[out] = block.r;
+        samples[out + 1] = block.g;
+        samples[out + 2] = block.b;
+        candidates[cell] = block.blankCandidate;
+        hardBlank[cell] = block.hardBlank;
+      }
+    }
+
+    var blankMask = buildBlankMaskFromCandidates(candidates, hardBlank, settings.width, settings.height);
+    return {
+      samples: samples,
+      blankMask: blankMask,
+      crop: crop
+    };
+  }
+
+  function getFeatureSampleScale(width, height) {
+    var longest = Math.max(width, height);
+    if (longest <= 50) {
+      return 8;
+    }
+    if (longest <= 80) {
+      return 6;
+    }
+    if (longest <= 140) {
+      return 4;
+    }
+    return 3;
+  }
+
+  function sampleFeatureBlock(data, canvasWidth, startX, startY, size, bg) {
+    var bgThresholdSq = 30 * 30;
+    var pixelCount = size * size;
+    var visibleCount = 0;
+    var bgLikeCount = 0;
+    var sumR = 0;
+    var sumG = 0;
+    var sumB = 0;
+
+    for (var y = 0; y < size; y += 1) {
+      for (var x = 0; x < size; x += 1) {
+        var i = ((startY + y) * canvasWidth + startX + x) * 4;
+        var alpha = data[i + 3] / 255;
+        if (alpha <= 0.05) {
+          continue;
+        }
+        var r = data[i] * alpha + bg.r * (1 - alpha);
+        var g = data[i + 1] * alpha + bg.g * (1 - alpha);
+        var b = data[i + 2] * alpha + bg.b * (1 - alpha);
+        var dr = r - bg.r;
+        var dg = g - bg.g;
+        var db = b - bg.b;
+
+        if (dr * dr + dg * dg + db * db <= bgThresholdSq) {
+          bgLikeCount += 1;
+        }
+        visibleCount += 1;
+        sumR += r;
+        sumG += g;
+        sumB += b;
+      }
+    }
+
+    if (visibleCount === 0) {
+      return {
+        r: bg.r,
+        g: bg.g,
+        b: bg.b,
+        blankCandidate: 1,
+        hardBlank: 1
+      };
+    }
+
+    var avg = {
+      r: sumR / visibleCount,
+      g: sumG / visibleCount,
+      b: sumB / visibleCount
+    };
+    var preserved = pickSalientBlockColor(data, canvasWidth, startX, startY, size, bg, avg, visibleCount);
+    var visibleRatio = visibleCount / pixelCount;
+    var bgRatio = bgLikeCount / visibleCount;
+    var avgDr = avg.r - bg.r;
+    var avgDg = avg.g - bg.g;
+    var avgDb = avg.b - bg.b;
+    var avgNearBg = avgDr * avgDr + avgDg * avgDg + avgDb * avgDb <= bgThresholdSq;
+
+    return {
+      r: preserved.r,
+      g: preserved.g,
+      b: preserved.b,
+      blankCandidate: visibleRatio < 0.22 || (bgRatio > 0.82 && avgNearBg) ? 1 : 0,
+      hardBlank: visibleRatio < 0.05 ? 1 : 0
+    };
+  }
+
+  function pickSalientBlockColor(data, canvasWidth, startX, startY, size, bg, avg, visibleCount) {
+    var avgLum = getLuminance255(avg);
+    var dark = { count: 0, r: 0, g: 0, b: 0 };
+    var light = { count: 0, r: 0, g: 0, b: 0 };
+
+    for (var y = 0; y < size; y += 1) {
+      for (var x = 0; x < size; x += 1) {
+        var i = ((startY + y) * canvasWidth + startX + x) * 4;
+        var alpha = data[i + 3] / 255;
+        if (alpha <= 0.05) {
+          continue;
+        }
+        var r = data[i] * alpha + bg.r * (1 - alpha);
+        var g = data[i + 1] * alpha + bg.g * (1 - alpha);
+        var b = data[i + 2] * alpha + bg.b * (1 - alpha);
+        var lum = getLuminance255({ r: r, g: g, b: b });
+        var dr = r - avg.r;
+        var dg = g - avg.g;
+        var db = b - avg.b;
+        var distanceSq = dr * dr + dg * dg + db * db;
+
+        if (lum < avgLum - 42 && distanceSq > 1400) {
+          dark.count += 1;
+          dark.r += r;
+          dark.g += g;
+          dark.b += b;
+        } else if (lum > avgLum + 38 && distanceSq > 1200) {
+          light.count += 1;
+          light.r += r;
+          light.g += g;
+          light.b += b;
+        }
+      }
+    }
+
+    var minFeaturePixels = Math.max(4, Math.floor(visibleCount * 0.08));
+    var best = {
+      score: 0,
+      color: avg
+    };
+
+    scoreFeatureCandidate(dark, visibleCount, avg, best, 1.12, minFeaturePixels, 0, 118, 70);
+    scoreFeatureCandidate(light, visibleCount, avg, best, 1, minFeaturePixels, 205, 255, 66);
+
+    return best.color;
+  }
+
+  function scoreFeatureCandidate(candidate, visibleCount, avg, best, weight, minPixels, minLum, maxLum, minScore) {
+    if (candidate.count < minPixels) {
+      return;
+    }
+    var color = {
+      r: candidate.r / candidate.count,
+      g: candidate.g / candidate.count,
+      b: candidate.b / candidate.count
+    };
+    var lum = getLuminance255(color);
+    if (lum < minLum || lum > maxLum) {
+      return;
+    }
+    var dr = color.r - avg.r;
+    var dg = color.g - avg.g;
+    var db = color.b - avg.b;
+    var contrast = Math.sqrt(dr * dr + dg * dg + db * db);
+    var coverage = candidate.count / visibleCount;
+    var score = contrast * (0.72 + coverage * 3.5) * weight;
+    if (score > best.score && score > minScore) {
+      best.score = score;
+      best.color = color;
+    }
+  }
+
+  function buildBlankMaskFromCandidates(candidates, hardBlank, width, height) {
+    var blank = new Uint8Array(candidates.length);
+    var visited = new Uint8Array(candidates.length);
+    var queue = [];
+
+    for (var i = 0; i < hardBlank.length; i += 1) {
+      if (hardBlank[i]) {
+        blank[i] = 1;
+        visited[i] = 1;
+        queue.push(i);
+      }
+    }
+
+    function pushIfCandidate(index) {
+      if (candidates[index] && !visited[index]) {
+        visited[index] = 1;
+        blank[index] = 1;
+        queue.push(index);
+      }
+    }
+
+    for (var x = 0; x < width; x += 1) {
+      pushIfCandidate(x);
+      pushIfCandidate((height - 1) * width + x);
+    }
+    for (var y = 0; y < height; y += 1) {
+      pushIfCandidate(y * width);
+      pushIfCandidate(y * width + width - 1);
+    }
+
+    for (var head = 0; head < queue.length; head += 1) {
+      var current = queue[head];
+      var cx = current % width;
+      if (cx > 0) {
+        pushIfCandidate(current - 1);
+      }
+      if (cx < width - 1) {
+        pushIfCandidate(current + 1);
+      }
+      if (current >= width) {
+        pushIfCandidate(current - width);
+      }
+      if (current < candidates.length - width) {
+        pushIfCandidate(current + width);
+      }
+    }
+
+    return blank;
   }
 
   function buildBlankMask(data, width, height, bg) {
@@ -1607,6 +1867,10 @@
       return value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
     }
     return 0.2126 * channel(rgb.r) + 0.7152 * channel(rgb.g) + 0.0722 * channel(rgb.b);
+  }
+
+  function getLuminance255(rgb) {
+    return 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
   }
 
   function getTextColor(rgb) {

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>拼豆图纸转换器</title>
-    <link rel="stylesheet" href="styles.css?v=20260516-2">
+    <link rel="stylesheet" href="styles.css?v=20260516-3">
   </head>
   <body>
     <header class="app-header">
@@ -92,6 +92,10 @@
           <label>
             <span>最大颜色数</span>
             <input id="maxColors" type="number" min="0" max="144" value="40">
+          </label>
+          <label class="check-row">
+            <input id="featureSampling" type="checkbox" checked>
+            <span>低像素特征保护</span>
           </label>
           <label class="check-row">
             <input id="dither" type="checkbox">
@@ -189,7 +193,7 @@
       </aside>
     </main>
 
-    <script src="palette.js?v=20260516-2"></script>
-    <script src="app.js?v=20260516-2"></script>
+    <script src="palette.js?v=20260516-3"></script>
+    <script src="app.js?v=20260516-3"></script>
   </body>
 </html>
