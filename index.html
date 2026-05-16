@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>拼豆图纸转换器</title>
-    <link rel="stylesheet" href="styles.css?v=20260516-4">
+    <link rel="stylesheet" href="styles.css?v=20260516-5">
   </head>
   <body>
     <header class="app-header">
@@ -34,9 +34,15 @@
           <label>
             <span>预设</span>
             <select id="preset">
-              <option value="50x50">50 × 50</option>
+              <option value="30x30">30 × 30</option>
+              <option value="40x40">40 × 40</option>
+              <option value="50x50" selected>50 × 50</option>
               <option value="64x64">64 × 64</option>
+              <option value="80x80">80 × 80</option>
               <option value="100x100">100 × 100</option>
+              <option value="128x128">128 × 128</option>
+              <option value="150x150">150 × 150</option>
+              <option value="200x200">200 × 200</option>
               <option value="64x64-kids">64 × 64 儿童画</option>
               <option value="custom">自定义</option>
             </select>
@@ -147,7 +153,16 @@
             <h2>图纸预览</h2>
             <p id="previewMeta">上传图片后生成</p>
           </div>
-          <button id="printBtn" type="button" disabled>打印 / 存 PDF</button>
+          <div class="preview-actions">
+            <div class="zoom-controls" aria-label="预览缩放">
+              <button id="zoomOut" type="button" disabled>-</button>
+              <input id="previewZoom" type="range" min="25" max="250" step="5" value="100" disabled>
+              <button id="zoomIn" type="button" disabled>+</button>
+              <button id="zoomFit" type="button" disabled>适应</button>
+              <span id="previewZoomLabel">100%</span>
+            </div>
+            <button id="printBtn" type="button" disabled>打印 / 存 PDF</button>
+          </div>
         </div>
         <div class="canvas-shell" id="canvasShell">
           <div class="empty-state" id="emptyState">暂无图纸</div>
@@ -193,7 +208,7 @@
       </aside>
     </main>
 
-    <script src="palette.js?v=20260516-4"></script>
-    <script src="app.js?v=20260516-4"></script>
+    <script src="palette.js?v=20260516-5"></script>
+    <script src="app.js?v=20260516-5"></script>
   </body>
 </html>

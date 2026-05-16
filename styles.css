@@ -274,6 +274,36 @@ input[type="range"] {
   gap: 12px;
 }
 
+.preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zoom-controls button {
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0 8px;
+}
+
+.zoom-controls input {
+  width: 120px;
+}
+
+#previewZoomLabel {
+  min-width: 42px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: right;
+}
+
 .preview-topbar h2,
 .stats-heading h2,
 .palette-head h2 {
@@ -309,6 +339,9 @@ input[type="range"] {
   display: none;
   max-width: none;
   background: #ffffff;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  transform-origin: top left;
 }
 
 .stats-wrap {

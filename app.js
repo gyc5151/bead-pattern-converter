@@ -48,7 +48,13 @@
     statsSummary: document.getElementById("statsSummary"),
     groupFilter: document.getElementById("groupFilter"),
     paletteGrid: document.getElementById("paletteGrid"),
-    resetPalette: document.getElementById("resetPalette")
+    resetPalette: document.getElementById("resetPalette"),
+    canvasShell: document.getElementById("canvasShell"),
+    zoomOut: document.getElementById("zoomOut"),
+    zoomIn: document.getElementById("zoomIn"),
+    zoomFit: document.getElementById("zoomFit"),
+    previewZoom: document.getElementById("previewZoom"),
+    previewZoomLabel: document.getElementById("previewZoomLabel")
   };
 
   var sourceImage = null;
@@ -58,6 +64,7 @@
   var excludedColors = new Set();
   var enabledGroups = new Set(["f", "g", "h", "i", "j", "k"]);
   var convertTimer = 0;
+  var previewZoom = 1;
   var BLANK_CELL = 65535;
 
   init();
@@ -68,6 +75,7 @@
     bindEvents();
     updatePaletteCount();
     updateStyleControlState();
+    updatePreviewZoom();
   }
 
   function bindEvents() {
@@ -104,19 +112,16 @@
         els.gridWidth.value = 64;
         els.gridHeight.value = 64;
         els.styleMode.value = "kids";
-        els.maxColors.value = 18;
-        els.simplifyLevel.value = 4;
-        els.edgeStrength.value = 2;
+        els.maxColors.value = 24;
+        els.simplifyLevel.value = 2;
+        els.edgeStrength.value = 1;
         els.dither.checked = false;
-      } else if (els.preset.value === "50x50") {
-        els.gridWidth.value = 50;
-        els.gridHeight.value = 50;
-      } else if (els.preset.value === "64x64") {
-        els.gridWidth.value = 64;
-        els.gridHeight.value = 64;
-      } else if (els.preset.value === "100x100") {
-        els.gridWidth.value = 100;
-        els.gridHeight.value = 100;
+      } else {
+        var presetSize = parsePresetSize(els.preset.value);
+        if (presetSize) {
+          els.gridWidth.value = presetSize.width;
+          els.gridHeight.value = presetSize.height;
+        }
       }
       updateStyleControlState();
       scheduleConvert();
@@ -159,6 +164,17 @@
     els.printBtn.addEventListener("click", function () {
       window.print();
     });
+    els.previewZoom.addEventListener("input", function () {
+      previewZoom = clampInt(els.previewZoom.value, 25, 250) / 100;
+      updatePreviewZoom();
+    });
+    els.zoomOut.addEventListener("click", function () {
+      setPreviewZoom(Math.max(0.25, previewZoom - 0.1));
+    });
+    els.zoomIn.addEventListener("click", function () {
+      setPreviewZoom(Math.min(2.5, previewZoom + 0.1));
+    });
+    els.zoomFit.addEventListener("click", fitPreviewZoom);
     els.resetPalette.addEventListener("click", function () {
       excludedColors.clear();
       enabledGroups = new Set(["f", "g", "h", "i", "j", "k"]);
@@ -167,6 +183,17 @@
       updatePaletteCount();
       scheduleConvert();
     });
+  }
+
+  function parsePresetSize(value) {
+    var match = /^(\d+)x(\d+)/.exec(value);
+    if (!match) {
+      return null;
+    }
+    return {
+      width: parseInt(match[1], 10),
+      height: parseInt(match[2], 10)
+    };
   }
 
   function applyStyleDefaults() {
@@ -216,6 +243,43 @@
     var isPhoto = els.styleMode.value === "photo";
     els.simplifyLevel.disabled = isPhoto;
     els.edgeStrength.disabled = isPhoto;
+  }
+
+  function setPreviewZoom(value) {
+    previewZoom = Math.max(0.25, Math.min(2.5, value));
+    els.previewZoom.value = Math.round(previewZoom * 100);
+    updatePreviewZoom();
+  }
+
+  function fitPreviewZoom() {
+    if (!result) {
+      setPreviewZoom(1);
+      return;
+    }
+    var availableWidth = Math.max(120, els.canvasShell.clientWidth - 28);
+    var availableHeight = Math.max(120, els.canvasShell.clientHeight - 28);
+    var naturalWidth = els.patternCanvas.width || 1;
+    var naturalHeight = els.patternCanvas.height || 1;
+    setPreviewZoom(Math.min(2.5, Math.max(0.25, Math.min(availableWidth / naturalWidth, availableHeight / naturalHeight))));
+  }
+
+  function updatePreviewZoom() {
+    var percent = Math.round(previewZoom * 100);
+    if (els.previewZoom) {
+      els.previewZoom.value = percent;
+      els.previewZoom.disabled = !result;
+    }
+    if (els.previewZoomLabel) {
+      els.previewZoomLabel.textContent = percent + "%";
+    }
+    [els.zoomOut, els.zoomIn, els.zoomFit].forEach(function (button) {
+      button.disabled = !result;
+    });
+    if (!result) {
+      return;
+    }
+    els.patternCanvas.style.width = Math.max(1, Math.round(els.patternCanvas.width * previewZoom)) + "px";
+    els.patternCanvas.style.height = Math.max(1, Math.round(els.patternCanvas.height * previewZoom)) + "px";
   }
 
   function loadFile(file) {
@@ -271,6 +335,7 @@
     setStatus("正在生成...");
     window.setTimeout(function () {
       try {
+        var previousResult = result;
         var sampled = sampleImage(sourceImage, settings);
         var processed = preprocessSamples(sampled.samples, settings.width, settings.height, settings);
         var selectedPalette = choosePalette(processed.samples, activePalette, settings.maxColors, sampled.blankMask);
@@ -312,6 +377,9 @@
         };
 
         drawPreview();
+        if (!previousResult) {
+          fitPreviewZoom();
+        }
         renderStats();
         enableExports(true);
         setStatus("已生成。");
@@ -499,7 +567,7 @@
         var dg = g - bg.g;
         var db = b - bg.b;
 
-        if (dr * dr + dg * dg + db * db <= bgThresholdSq) {
+        if (isBlankLikeRgb(r, g, b, bg)) {
           bgLikeCount += 1;
         }
         visibleCount += 1;
@@ -530,14 +598,21 @@
     var avgDr = avg.r - bg.r;
     var avgDg = avg.g - bg.g;
     var avgDb = avg.b - bg.b;
-    var avgNearBg = avgDr * avgDr + avgDg * avgDg + avgDb * avgDb <= bgThresholdSq;
+    var avgNearBg = avgDr * avgDr + avgDg * avgDg + avgDb * avgDb <= bgThresholdSq || isBlankLikeRgb(avg.r, avg.g, avg.b, bg);
+    var preservedDr = preserved.r - avg.r;
+    var preservedDg = preserved.g - avg.g;
+    var preservedDb = preserved.b - avg.b;
+    var preservedLum = getLuminance255(preserved);
+    var hasSalientFeature =
+      preservedDr * preservedDr + preservedDg * preservedDg + preservedDb * preservedDb > 3000 &&
+      (preservedLum < 122 || preservedLum > 205);
 
     return {
       r: preserved.r,
       g: preserved.g,
       b: preserved.b,
-      blankCandidate: visibleRatio < 0.22 || (bgRatio > 0.82 && avgNearBg) ? 1 : 0,
-      hardBlank: visibleRatio < 0.05 ? 1 : 0
+      blankCandidate: (visibleRatio < 0.3 && !hasSalientFeature) || (bgRatio > 0.82 && avgNearBg) ? 1 : 0,
+      hardBlank: visibleRatio < 0.05 && !hasSalientFeature ? 1 : 0
     };
   }
 
@@ -684,7 +759,7 @@
       if (alpha <= 12) {
         blank[cell] = 1;
         candidates[cell] = 1;
-      } else if (dr * dr + dg * dg + db * db <= thresholdSq) {
+      } else if (dr * dr + dg * dg + db * db <= thresholdSq || isBlankLikeRgb(r, g, b, bg)) {
         candidates[cell] = 1;
       }
     }
@@ -789,6 +864,14 @@
       });
     }
 
+    var checker = detectCheckerboardBackground(data, width, height, stride);
+    if (checker) {
+      return boundsFromPredicate(width, height, stride, function (x, y) {
+        var i = (y * width + x) * 4;
+        return data[i + 3] > 24 && !isCheckerBackgroundPixel(data[i], data[i + 1], data[i + 2], checker);
+      });
+    }
+
     var border = sampleBorderStats(data, width, height, stride);
     var threshold = Math.max(28, border.meanDistance + border.stdDistance * 2.25);
     var thresholdSq = threshold * threshold;
@@ -799,6 +882,65 @@
       var db = data[i + 2] - border.b;
       return dr * dr + dg * dg + db * db > thresholdSq;
     });
+  }
+
+  function detectCheckerboardBackground(data, width, height, stride) {
+    var samples = [];
+    function addPixel(x, y) {
+      var i = (y * width + x) * 4;
+      if (data[i + 3] < 220) {
+        return;
+      }
+      var stats = getRgbStats(data[i], data[i + 1], data[i + 2]);
+      samples.push(stats);
+    }
+
+    for (var x = 0; x < width; x += stride) {
+      addPixel(x, 0);
+      addPixel(x, height - 1);
+    }
+    for (var y = 0; y < height; y += stride) {
+      addPixel(0, y);
+      addPixel(width - 1, y);
+    }
+
+    if (samples.length < 20) {
+      return null;
+    }
+
+    var lightNeutral = samples.filter(function (sample) {
+      return sample.luminance > 180 && sample.chroma < 28;
+    });
+    if (lightNeutral.length < samples.length * 0.72) {
+      return null;
+    }
+
+    var totalLum = lightNeutral.reduce(function (total, sample) {
+      return total + sample.luminance;
+    }, 0);
+    var meanLum = totalLum / lightNeutral.length;
+    var variance = lightNeutral.reduce(function (total, sample) {
+      var diff = sample.luminance - meanLum;
+      return total + diff * diff;
+    }, 0) / lightNeutral.length;
+    var stdLum = Math.sqrt(variance);
+
+    if (stdLum < 4.5 || stdLum > 32) {
+      return null;
+    }
+
+    return {
+      minLum: Math.max(170, meanLum - stdLum * 3.4),
+      maxLum: Math.min(255, meanLum + stdLum * 3.4),
+      maxChroma: 32
+    };
+  }
+
+  function isCheckerBackgroundPixel(r, g, b, checker) {
+    var stats = getRgbStats(r, g, b);
+    return stats.luminance >= checker.minLum &&
+      stats.luminance <= checker.maxLum &&
+      stats.chroma <= checker.maxChroma;
   }
 
   function sampleBorderStats(data, width, height, stride) {
@@ -1487,6 +1629,7 @@
       showGrid: result.settings.showGrid,
       guideEvery: result.settings.guideEvery
     });
+    updatePreviewZoom();
 
     els.patternCanvas.style.display = "block";
     els.emptyState.style.display = "none";
@@ -1935,6 +2078,24 @@
 
   function getLuminance255(rgb) {
     return 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
+  }
+
+  function getRgbStats(r, g, b) {
+    return {
+      luminance: 0.2126 * r + 0.7152 * g + 0.0722 * b,
+      chroma: Math.max(r, g, b) - Math.min(r, g, b)
+    };
+  }
+
+  function isBlankLikeRgb(r, g, b, bg) {
+    var dr = r - bg.r;
+    var dg = g - bg.g;
+    var db = b - bg.b;
+    if (dr * dr + dg * dg + db * db <= 30 * 30) {
+      return true;
+    }
+    var stats = getRgbStats(r, g, b);
+    return stats.luminance > 218 && stats.chroma < 22;
   }
 
   function getTextColor(rgb) {
