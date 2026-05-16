@@ -179,7 +179,7 @@
       updatePreviewZoom();
     });
     els.zoomOut.addEventListener("click", function () {
-      setPreviewZoom(Math.max(0.25, previewZoom - 0.1));
+      setPreviewZoom(Math.max(0.05, previewZoom - 0.1));
     });
     els.zoomIn.addEventListener("click", function () {
       setPreviewZoom(Math.min(2.5, previewZoom + 0.1));
@@ -264,7 +264,7 @@
   }
 
   function setPreviewZoom(value) {
-    previewZoom = Math.max(0.25, Math.min(2.5, value));
+    previewZoom = Math.max(0.05, Math.min(2.5, value));
     els.previewZoom.value = Math.round(previewZoom * 100);
     updatePreviewZoom();
   }
@@ -278,7 +278,7 @@
     var availableHeight = Math.max(120, els.canvasShell.clientHeight - 28);
     var naturalWidth = parseFloat(els.patternCanvas.dataset.logicalWidth) || els.patternCanvas.width || 1;
     var naturalHeight = parseFloat(els.patternCanvas.dataset.logicalHeight) || els.patternCanvas.height || 1;
-    setPreviewZoom(Math.min(2.5, Math.max(0.25, Math.min(availableWidth / naturalWidth, availableHeight / naturalHeight))));
+    setPreviewZoom(Math.min(2.5, Math.max(0.05, Math.min(availableWidth / naturalWidth, availableHeight / naturalHeight))));
   }
 
   function updatePreviewZoom() {
@@ -322,7 +322,7 @@
     }
     event.preventDefault();
     var factor = Math.exp(-event.deltaY * 0.0024);
-    zoomPreviewAt(event.clientX, event.clientY, Math.max(0.25, Math.min(2.5, previewZoom * factor)));
+    zoomPreviewAt(event.clientX, event.clientY, Math.max(0.05, Math.min(2.5, previewZoom * factor)));
   }
 
   function startPreviewPan(event) {
@@ -454,7 +454,6 @@
     setStatus("正在生成...");
     window.setTimeout(function () {
       try {
-        var previousResult = result;
         var sampled = sampleImage(sourceImage, settings);
         var processed = preprocessSamples(sampled.samples, settings.width, settings.height, settings);
         var selectedPalette = choosePalette(processed.samples, activePalette, settings.maxColors, sampled.blankMask);
@@ -496,9 +495,7 @@
         };
 
         drawPreview();
-        if (!previousResult) {
-          fitPreviewZoom();
-        }
+        fitPreviewZoom();
         renderStats();
         enableExports(true);
         setStatus("已生成。");

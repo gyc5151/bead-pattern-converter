@@ -312,7 +312,10 @@ input[type="range"] {
 
 .canvas-shell {
   position: relative;
-  min-height: 420px;
+  width: 100%;
+  height: clamp(360px, calc(100vh - 260px), 720px);
+  min-height: 0;
+  max-height: 720px;
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
