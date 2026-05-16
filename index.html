@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>拼豆图纸转换器</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <h1>拼豆图纸转换器</h1>
+        <p>fg h i j k 全实色套餐色号库</p>
+      </div>
+      <div class="header-metrics" aria-live="polite">
+        <span id="paletteCount">144 色</span>
+        <span id="resultSize">未生成</span>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="panel controls-panel" aria-label="转换设置">
+        <section class="control-section">
+          <h2>图片</h2>
+          <label class="drop-zone" id="dropZone">
+            <input id="fileInput" type="file" accept="image/*">
+            <span class="drop-title">选择图片</span>
+            <span class="drop-meta" id="fileMeta">PNG / JPG / WebP</span>
+          </label>
+        </section>
+
+        <section class="control-section">
+          <h2>规格</h2>
+          <label>
+            <span>预设</span>
+            <select id="preset">
+              <option value="64x64-kids">64 × 64 儿童画</option>
+              <option value="100x100">100 × 100</option>
+              <option value="50x50">50 × 50</option>
+              <option value="64x64">64 × 64</option>
+              <option value="custom">自定义</option>
+            </select>
+          </label>
+          <div class="two-col">
+            <label>
+              <span>宽</span>
+              <input id="gridWidth" type="number" min="1" max="250" value="64">
+            </label>
+            <label>
+              <span>高</span>
+              <input id="gridHeight" type="number" min="1" max="250" value="64">
+            </label>
+          </div>
+          <label>
+            <span>取景</span>
+            <select id="fitMode">
+              <option value="cover">居中裁剪</option>
+              <option value="contain">完整留边</option>
+              <option value="stretch">拉伸填满</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="control-section">
+          <h2>风格</h2>
+          <label>
+            <span>模式</span>
+            <select id="styleMode">
+              <option value="kids">儿童画简化</option>
+              <option value="simple">拼豆简化</option>
+              <option value="cartoon">卡通块面</option>
+              <option value="outline">轮廓强化</option>
+              <option value="photo">原图匹配</option>
+            </select>
+          </label>
+          <label class="check-row">
+            <input id="autoCropSubject" type="checkbox" checked>
+            <span>主体裁剪</span>
+          </label>
+          <label>
+            <span>简化强度</span>
+            <input id="simplifyLevel" type="range" min="0" max="4" step="1" value="4">
+          </label>
+          <label>
+            <span>轮廓强度</span>
+            <input id="edgeStrength" type="range" min="0" max="4" step="1" value="2">
+          </label>
+        </section>
+
+        <section class="control-section">
+          <h2>匹配</h2>
+          <label>
+            <span>最大颜色数</span>
+            <input id="maxColors" type="number" min="0" max="144" value="18">
+          </label>
+          <label class="check-row">
+            <input id="dither" type="checkbox">
+            <span>抖动渐变</span>
+          </label>
+          <label>
+            <span>透明底色</span>
+            <input id="backgroundColor" type="color" value="#ffffff">
+          </label>
+        </section>
+
+        <section class="control-section">
+          <h2>图纸</h2>
+          <div class="two-col">
+            <label>
+              <span>格子像素</span>
+              <input id="cellSize" type="number" min="8" max="40" value="18">
+            </label>
+            <label>
+              <span>分块</span>
+              <input id="guideEvery" type="number" min="0" max="50" value="25">
+            </label>
+          </div>
+          <label class="check-row">
+            <input id="showCodes" type="checkbox" checked>
+            <span>格内显示色号</span>
+          </label>
+          <label class="check-row">
+            <input id="showGrid" type="checkbox" checked>
+            <span>显示网格</span>
+          </label>
+        </section>
+
+        <section class="control-section">
+          <h2>导出</h2>
+          <div class="button-stack">
+            <button id="convertBtn" type="button">生成图纸</button>
+            <button id="downloadPng" type="button" disabled>下载 PNG</button>
+            <button id="downloadSvg" type="button" disabled>下载 SVG</button>
+            <button id="downloadCsv" type="button" disabled>下载用量 CSV</button>
+          </div>
+          <p class="status" id="statusText">等待图片。</p>
+        </section>
+      </aside>
+
+      <section class="panel preview-panel" aria-label="图纸预览">
+        <div class="preview-topbar">
+          <div>
+            <h2>图纸预览</h2>
+            <p id="previewMeta">上传图片后生成</p>
+          </div>
+          <button id="printBtn" type="button" disabled>打印 / 存 PDF</button>
+        </div>
+        <div class="canvas-shell" id="canvasShell">
+          <div class="empty-state" id="emptyState">暂无图纸</div>
+          <canvas id="patternCanvas" aria-label="拼豆图纸画布"></canvas>
+        </div>
+        <div class="stats-wrap">
+          <div class="stats-heading">
+            <h2>颜色用量</h2>
+            <span id="statsSummary">0 颗</span>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>色号</th>
+                  <th>HEX</th>
+                  <th>数量</th>
+                  <th>占比</th>
+                  <th>估算包数</th>
+                </tr>
+              </thead>
+              <tbody id="statsBody">
+                <tr>
+                  <td colspan="5">还没有生成结果。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel palette-panel" aria-label="色号库">
+        <div class="palette-head">
+          <div>
+            <h2>色号库</h2>
+            <p>截图采样 HEX，匹配以 LAB 色差计算。</p>
+          </div>
+          <button id="resetPalette" type="button">全选</button>
+        </div>
+        <div class="group-filter" id="groupFilter"></div>
+        <div class="palette-grid" id="paletteGrid"></div>
+      </aside>
+    </main>
+
+    <script src="palette.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
