@@ -32,6 +32,12 @@ select {
   font: inherit;
 }
 
+input:disabled,
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 button {
   min-height: 38px;
   border: 1px solid var(--line-strong);

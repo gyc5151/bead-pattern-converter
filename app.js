@@ -57,6 +57,7 @@
   var excludedColors = new Set();
   var enabledGroups = new Set(["f", "g", "h", "i", "j", "k"]);
   var convertTimer = 0;
+  var BLANK_CELL = 65535;
 
   init();
 
@@ -65,6 +66,7 @@
     renderPalette();
     bindEvents();
     updatePaletteCount();
+    updateStyleControlState();
   }
 
   function bindEvents() {
@@ -115,6 +117,7 @@
         els.gridWidth.value = 100;
         els.gridHeight.value = 100;
       }
+      updateStyleControlState();
       scheduleConvert();
     });
 
@@ -143,14 +146,7 @@
     });
 
     els.styleMode.addEventListener("change", function () {
-      if (els.styleMode.value === "kids") {
-        if (parseInt(els.maxColors.value, 10) > 24 || parseInt(els.maxColors.value, 10) === 0) {
-          els.maxColors.value = 18;
-        }
-        els.simplifyLevel.value = Math.max(parseInt(els.simplifyLevel.value, 10) || 0, 3);
-        els.edgeStrength.value = Math.max(parseInt(els.edgeStrength.value, 10) || 0, 2);
-        els.dither.checked = false;
-      }
+      applyStyleDefaults();
       scheduleConvert();
     });
 
@@ -169,6 +165,55 @@
       updatePaletteCount();
       scheduleConvert();
     });
+  }
+
+  function applyStyleDefaults() {
+    var maxColors = parseInt(els.maxColors.value, 10) || 0;
+
+    if (els.styleMode.value === "photo") {
+      els.simplifyLevel.value = 0;
+      els.edgeStrength.value = 0;
+      if (maxColors === 0 || maxColors > 60) {
+        els.maxColors.value = 40;
+      }
+      els.dither.checked = false;
+    } else if (els.styleMode.value === "kids") {
+      if (maxColors > 24 || maxColors === 0) {
+        els.maxColors.value = 18;
+      }
+      els.simplifyLevel.value = Math.max(parseInt(els.simplifyLevel.value, 10) || 0, 3);
+      els.edgeStrength.value = Math.max(parseInt(els.edgeStrength.value, 10) || 0, 2);
+      els.dither.checked = false;
+    } else if (els.styleMode.value === "simple") {
+      if (maxColors === 0 || maxColors > 48) {
+        els.maxColors.value = 32;
+      }
+      els.simplifyLevel.value = Math.max(parseInt(els.simplifyLevel.value, 10) || 0, 1);
+      els.edgeStrength.value = 0;
+      els.dither.checked = false;
+    } else if (els.styleMode.value === "outline") {
+      if (maxColors === 0 || maxColors > 48) {
+        els.maxColors.value = 32;
+      }
+      els.simplifyLevel.value = Math.max(parseInt(els.simplifyLevel.value, 10) || 0, 2);
+      els.edgeStrength.value = Math.max(parseInt(els.edgeStrength.value, 10) || 0, 2);
+      els.dither.checked = false;
+    } else if (els.styleMode.value === "cartoon") {
+      if (maxColors === 0 || maxColors > 36) {
+        els.maxColors.value = 24;
+      }
+      els.simplifyLevel.value = Math.max(parseInt(els.simplifyLevel.value, 10) || 0, 2);
+      els.edgeStrength.value = Math.max(parseInt(els.edgeStrength.value, 10) || 0, 1);
+      els.dither.checked = false;
+    }
+
+    updateStyleControlState();
+  }
+
+  function updateStyleControlState() {
+    var isPhoto = els.styleMode.value === "photo";
+    els.simplifyLevel.disabled = isPhoto;
+    els.edgeStrength.disabled = isPhoto;
   }
 
   function loadFile(file) {
@@ -226,7 +271,7 @@
       try {
         var sampled = sampleImage(sourceImage, settings);
         var processed = preprocessSamples(sampled.samples, settings.width, settings.height, settings);
-        var selectedPalette = choosePalette(processed.samples, activePalette, settings.maxColors);
+        var selectedPalette = choosePalette(processed.samples, activePalette, settings.maxColors, sampled.blankMask);
         var outlineColor = null;
         if (processed.outlineMap) {
           outlineColor = chooseOutlineColor(activePalette);
@@ -235,8 +280,8 @@
           }
         }
         var mapped = settings.dither
-          ? mapWithDither(processed.samples, selectedPalette, settings.width, settings.height)
-          : mapDirect(processed.samples, selectedPalette);
+          ? mapWithDither(processed.samples, selectedPalette, settings.width, settings.height, sampled.blankMask)
+          : mapDirect(processed.samples, selectedPalette, sampled.blankMask);
         if (!settings.dither && processed.cleanupPasses > 0) {
           mapped.cells = cleanupCells(mapped.cells, settings.width, settings.height, processed.cleanupPasses);
           mapped.counts = countCells(mapped.cells);
@@ -260,6 +305,7 @@
           palette: selectedPalette,
           cells: mapped.cells,
           counts: mapped.counts,
+          blankMask: sampled.blankMask,
           crop: sampled.crop
         };
 
@@ -315,8 +361,7 @@
     canvas.height = settings.height;
     var ctx = canvas.getContext("2d", { willReadFrequently: true });
     var bg = hexToRgb(settings.backgroundColor);
-    ctx.fillStyle = settings.backgroundColor;
-    ctx.fillRect(0, 0, settings.width, settings.height);
+    ctx.clearRect(0, 0, settings.width, settings.height);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
 
@@ -342,6 +387,7 @@
 
     var data = ctx.getImageData(0, 0, settings.width, settings.height).data;
     var samples = new Float32Array(settings.width * settings.height * 3);
+    var blankMask = buildBlankMask(data, settings.width, settings.height, bg);
 
     for (var i = 0, j = 0; i < data.length; i += 4, j += 3) {
       var alpha = data[i + 3] / 255;
@@ -352,8 +398,73 @@
 
     return {
       samples: samples,
+      blankMask: blankMask,
       crop: crop
     };
+  }
+
+  function buildBlankMask(data, width, height, bg) {
+    var cellCount = width * height;
+    var blank = new Uint8Array(cellCount);
+    var candidates = new Uint8Array(cellCount);
+    var visited = new Uint8Array(cellCount);
+    var thresholdSq = 30 * 30;
+
+    for (var cell = 0; cell < cellCount; cell += 1) {
+      var i = cell * 4;
+      var alpha = data[i + 3];
+      var alphaRatio = alpha / 255;
+      var r = data[i] * alphaRatio + bg.r * (1 - alphaRatio);
+      var g = data[i + 1] * alphaRatio + bg.g * (1 - alphaRatio);
+      var b = data[i + 2] * alphaRatio + bg.b * (1 - alphaRatio);
+      var dr = r - bg.r;
+      var dg = g - bg.g;
+      var db = b - bg.b;
+
+      if (alpha <= 12) {
+        blank[cell] = 1;
+        candidates[cell] = 1;
+      } else if (dr * dr + dg * dg + db * db <= thresholdSq) {
+        candidates[cell] = 1;
+      }
+    }
+
+    var queue = [];
+    function pushIfCandidate(index) {
+      if (candidates[index] && !visited[index]) {
+        visited[index] = 1;
+        blank[index] = 1;
+        queue.push(index);
+      }
+    }
+
+    for (var x = 0; x < width; x += 1) {
+      pushIfCandidate(x);
+      pushIfCandidate((height - 1) * width + x);
+    }
+    for (var y = 0; y < height; y += 1) {
+      pushIfCandidate(y * width);
+      pushIfCandidate(y * width + width - 1);
+    }
+
+    for (var head = 0; head < queue.length; head += 1) {
+      var current = queue[head];
+      var cx = current % width;
+      if (cx > 0) {
+        pushIfCandidate(current - 1);
+      }
+      if (cx < width - 1) {
+        pushIfCandidate(current + 1);
+      }
+      if (current >= width) {
+        pushIfCandidate(current - width);
+      }
+      if (current < cellCount - width) {
+        pushIfCandidate(current + width);
+      }
+    }
+
+    return blank;
   }
 
   function getSourceCrop(image, settings) {
@@ -805,13 +916,16 @@
     }
   }
 
-  function choosePalette(samples, activePalette, maxColors) {
+  function choosePalette(samples, activePalette, maxColors, blankMask) {
     if (!maxColors || maxColors >= activePalette.length) {
       return activePalette.slice();
     }
 
     var counts = new Map();
-    for (var i = 0; i < samples.length; i += 3) {
+    for (var i = 0, cell = 0; i < samples.length; i += 3, cell += 1) {
+      if (blankMask && blankMask[cell]) {
+        continue;
+      }
       var nearest = nearestPaletteColor(samples[i], samples[i + 1], samples[i + 2], activePalette);
       counts.set(nearest.index, (counts.get(nearest.index) || 0) + 1);
     }
@@ -824,15 +938,23 @@
         return counts.get(b.index) - counts.get(a.index);
       });
 
+    if (!ranked.length) {
+      return activePalette.slice(0, Math.max(2, maxColors));
+    }
+
     return ranked.slice(0, Math.max(2, maxColors));
   }
 
-  function mapDirect(samples, selectedPalette) {
+  function mapDirect(samples, selectedPalette, blankMask) {
     var cellCount = samples.length / 3;
     var cells = new Uint16Array(cellCount);
     var counts = new Map();
 
     for (var i = 0, cell = 0; i < samples.length; i += 3, cell += 1) {
+      if (blankMask && blankMask[cell]) {
+        cells[cell] = BLANK_CELL;
+        continue;
+      }
       var nearest = nearestPaletteColor(samples[i], samples[i + 1], samples[i + 2], selectedPalette);
       cells[cell] = nearest.index;
       counts.set(nearest.index, (counts.get(nearest.index) || 0) + 1);
@@ -841,29 +963,33 @@
     return { cells: cells, counts: counts };
   }
 
-  function mapWithDither(samples, selectedPalette, width, height) {
+  function mapWithDither(samples, selectedPalette, width, height, blankMask) {
     var work = new Float32Array(samples);
     var cells = new Uint16Array(width * height);
     var counts = new Map();
 
     for (var y = 0; y < height; y += 1) {
       for (var x = 0; x < width; x += 1) {
+        var cell = y * width + x;
+        if (blankMask && blankMask[cell]) {
+          cells[cell] = BLANK_CELL;
+          continue;
+        }
         var pixel = (y * width + x) * 3;
         var r = clampChannel(work[pixel]);
         var g = clampChannel(work[pixel + 1]);
         var b = clampChannel(work[pixel + 2]);
         var nearest = nearestPaletteColor(r, g, b, selectedPalette);
-        var cell = y * width + x;
         cells[cell] = nearest.index;
         counts.set(nearest.index, (counts.get(nearest.index) || 0) + 1);
 
         var er = r - nearest.rgb.r;
         var eg = g - nearest.rgb.g;
         var eb = b - nearest.rgb.b;
-        addError(work, width, height, x + 1, y, er, eg, eb, 7 / 16);
-        addError(work, width, height, x - 1, y + 1, er, eg, eb, 3 / 16);
-        addError(work, width, height, x, y + 1, er, eg, eb, 5 / 16);
-        addError(work, width, height, x + 1, y + 1, er, eg, eb, 1 / 16);
+        addError(work, width, height, x + 1, y, er, eg, eb, 7 / 16, blankMask);
+        addError(work, width, height, x - 1, y + 1, er, eg, eb, 3 / 16, blankMask);
+        addError(work, width, height, x, y + 1, er, eg, eb, 5 / 16, blankMask);
+        addError(work, width, height, x + 1, y + 1, er, eg, eb, 1 / 16, blankMask);
       }
     }
 
@@ -880,6 +1006,9 @@
         for (var x = 0; x < width; x += 1) {
           var index = y * width + x;
           var currentColor = current[index];
+          if (currentColor === BLANK_CELL) {
+            continue;
+          }
           var counts = new Map();
 
           for (var oy = -1; oy <= 1; oy += 1) {
@@ -893,6 +1022,9 @@
                 continue;
               }
               var color = current[py * width + px];
+              if (color === BLANK_CELL) {
+                continue;
+              }
               counts.set(color, (counts.get(color) || 0) + 1);
             }
           }
@@ -924,7 +1056,7 @@
     var protectedCells = new Uint8Array(cells.length);
 
     for (var i = 0; i < outlineMap.length; i += 1) {
-      if (outlineMap[i]) {
+      if (outlineMap[i] && next[i] !== BLANK_CELL) {
         next[i] = outlineColorIndex;
         protectedCells[i] = 1;
       }
@@ -934,18 +1066,18 @@
       for (var y = 1; y < height - 1; y += 1) {
         for (var x = 1; x < width - 1; x += 1) {
           var index = y * width + x;
-          if (!outlineMap[index]) {
+          if (!outlineMap[index] || next[index] === BLANK_CELL) {
             continue;
           }
           if (outlineMap[index - 1] || outlineMap[index + 1]) {
             var down = index + width;
-            if (!protectedCells[down]) {
+            if (!protectedCells[down] && next[down] !== BLANK_CELL) {
               next[down] = outlineColorIndex;
             }
           }
           if (outlineMap[index - width] || outlineMap[index + width]) {
             var right = index + 1;
-            if (!protectedCells[right]) {
+            if (!protectedCells[right] && next[right] !== BLANK_CELL) {
               next[right] = outlineColorIndex;
             }
           }
@@ -959,13 +1091,27 @@
   function countCells(cells) {
     var counts = new Map();
     for (var i = 0; i < cells.length; i += 1) {
+      if (cells[i] === BLANK_CELL) {
+        continue;
+      }
       counts.set(cells[i], (counts.get(cells[i]) || 0) + 1);
     }
     return counts;
   }
 
-  function addError(work, width, height, x, y, er, eg, eb, factor) {
+  function getBeadTotal(counts) {
+    var total = 0;
+    counts.forEach(function (count) {
+      total += count;
+    });
+    return total;
+  }
+
+  function addError(work, width, height, x, y, er, eg, eb, factor, blankMask) {
     if (x < 0 || x >= width || y < 0 || y >= height) {
+      return;
+    }
+    if (blankMask && blankMask[y * width + x]) {
       return;
     }
     var i = (y * width + x) * 3;
@@ -1029,7 +1175,15 @@
       " · " +
       getStyleLabel(result.settings.styleMode) +
       (result.crop.applied ? " · 主体裁剪" : "");
-    els.resultSize.textContent = result.width + " × " + result.height + " · " + result.counts.size + " 色";
+    els.resultSize.textContent =
+      result.width +
+      " × " +
+      result.height +
+      " · " +
+      getBeadTotal(result.counts) +
+      " 颗 · " +
+      result.counts.size +
+      " 色";
   }
 
   function drawPattern(canvas, options) {
@@ -1043,10 +1197,16 @@
     canvas.width = canvasWidth + (options.showGrid ? 1 : 0);
     canvas.height = canvasHeight + (options.showGrid ? 1 : 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     for (var y = 0; y < height; y += 1) {
       for (var x = 0; x < width; x += 1) {
-        var color = palette[result.cells[y * width + x]];
+        var cellIndex = result.cells[y * width + x];
+        if (cellIndex === BLANK_CELL) {
+          continue;
+        }
+        var color = palette[cellIndex];
         ctx.fillStyle = color.hex;
         ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
       }
@@ -1058,7 +1218,11 @@
       ctx.font = "700 " + Math.max(7, Math.floor(cellSize * 0.34)) + "px sans-serif";
       for (var labelY = 0; labelY < height; labelY += 1) {
         for (var labelX = 0; labelX < width; labelX += 1) {
-          var labelColor = palette[result.cells[labelY * width + labelX]];
+          var labelCell = result.cells[labelY * width + labelX];
+          if (labelCell === BLANK_CELL) {
+            continue;
+          }
+          var labelColor = palette[labelCell];
           ctx.fillStyle = getTextColor(labelColor.rgb);
           ctx.fillText(
             labelColor.code,
@@ -1113,7 +1277,7 @@
       return;
     }
 
-    var total = result.width * result.height;
+    var total = getBeadTotal(result.counts);
     var rows = Array.from(result.counts.entries())
       .map(function (entry) {
         var color = palette[entry[0]];
@@ -1124,6 +1288,12 @@
       });
 
     els.statsBody.innerHTML = "";
+    if (total === 0) {
+      els.statsBody.innerHTML = "<tr><td colspan=\"6\">没有需要摆放的豆子。</td></tr>";
+      els.statsSummary.textContent = "0 颗 · 0 色";
+      return;
+    }
+
     rows.forEach(function (row) {
       var tr = document.createElement("tr");
       var percent = ((row.count / total) * 100).toFixed(1) + "%";
@@ -1134,6 +1304,9 @@
         "\"></span>" +
         escapeHtml(row.color.code) +
         "</span></td><td>" +
+        "盒 " +
+        escapeHtml(row.color.group) +
+        "</td><td>" +
         row.color.hex +
         "</td><td>" +
         row.count +
@@ -1244,16 +1417,17 @@
       return;
     }
 
-    var total = result.width * result.height;
+    var total = getBeadTotal(result.counts);
     var rows = Array.from(result.counts.entries())
       .map(function (entry) {
         var color = palette[entry[0]];
-        return [color.code, color.hex, entry[1], ((entry[1] / total) * 100).toFixed(2) + "%", Math.ceil(entry[1] / 1000)];
+        var percent = total > 0 ? ((entry[1] / total) * 100).toFixed(2) + "%" : "0.00%";
+        return [color.code, color.group, color.hex, entry[1], percent, Math.ceil(entry[1] / 1000)];
       })
       .sort(function (a, b) {
-        return b[2] - a[2] || a[0].localeCompare(b[0]);
+        return b[3] - a[3] || a[0].localeCompare(b[0]);
       });
-    var csv = "\ufeff色号,HEX,数量,占比,估算包数(1000颗/包)\n" + rows.map(csvRow).join("\n");
+    var csv = "\ufeff色号,盒号,HEX,数量,占比,估算包数(1000颗/包)\n" + rows.map(csvRow).join("\n");
     downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), safeFileName(sourceName) + "-用量.csv");
   }
 
@@ -1270,12 +1444,17 @@
         width +
         " " +
         height +
-        '">'
+        '">',
+      '<rect width="100%" height="100%" fill="#ffffff"/>'
     ];
 
     for (var y = 0; y < result.height; y += 1) {
       for (var x = 0; x < result.width; x += 1) {
-        var color = palette[result.cells[y * result.width + x]];
+        var cellIndex = result.cells[y * result.width + x];
+        if (cellIndex === BLANK_CELL) {
+          continue;
+        }
+        var color = palette[cellIndex];
         parts.push(
           '<rect x="' +
             x * cellSize +
@@ -1297,7 +1476,11 @@
       parts.push('<g font-family="sans-serif" font-weight="700" font-size="' + fontSize + '" text-anchor="middle" dominant-baseline="central">');
       for (var labelY = 0; labelY < result.height; labelY += 1) {
         for (var labelX = 0; labelX < result.width; labelX += 1) {
-          var labelColor = palette[result.cells[labelY * result.width + labelX]];
+          var labelCell = result.cells[labelY * result.width + labelX];
+          if (labelCell === BLANK_CELL) {
+            continue;
+          }
+          var labelColor = palette[labelCell];
           parts.push(
             '<text x="' +
               (labelX * cellSize + cellSize / 2) +
@@ -1371,7 +1554,7 @@
     if (styleMode === "photo") {
       return "原图匹配";
     }
-    return "拼豆简化";
+    return "轻度简化";
   }
 
   function hexToRgb(hex) {

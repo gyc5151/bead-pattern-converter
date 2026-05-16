@@ -34,21 +34,21 @@
           <label>
             <span>预设</span>
             <select id="preset">
-              <option value="64x64-kids">64 × 64 儿童画</option>
-              <option value="100x100">100 × 100</option>
               <option value="50x50">50 × 50</option>
               <option value="64x64">64 × 64</option>
+              <option value="100x100">100 × 100</option>
+              <option value="64x64-kids">64 × 64 儿童画</option>
               <option value="custom">自定义</option>
             </select>
           </label>
           <div class="two-col">
             <label>
               <span>宽</span>
-              <input id="gridWidth" type="number" min="1" max="250" value="64">
+              <input id="gridWidth" type="number" min="1" max="250" value="50">
             </label>
             <label>
               <span>高</span>
-              <input id="gridHeight" type="number" min="1" max="250" value="64">
+              <input id="gridHeight" type="number" min="1" max="250" value="50">
             </label>
           </div>
           <label>
@@ -62,15 +62,15 @@
         </section>
 
         <section class="control-section">
-          <h2>风格</h2>
+          <h2>处理方式</h2>
           <label>
             <span>模式</span>
             <select id="styleMode">
-              <option value="kids">儿童画简化</option>
-              <option value="simple">拼豆简化</option>
-              <option value="cartoon">卡通块面</option>
-              <option value="outline">轮廓强化</option>
               <option value="photo">原图匹配</option>
+              <option value="simple">轻度简化</option>
+              <option value="kids">儿童画简化</option>
+              <option value="outline">轮廓强化</option>
+              <option value="cartoon">卡通块面</option>
             </select>
           </label>
           <label class="check-row">
@@ -79,11 +79,11 @@
           </label>
           <label>
             <span>简化强度</span>
-            <input id="simplifyLevel" type="range" min="0" max="4" step="1" value="4">
+            <input id="simplifyLevel" type="range" min="0" max="4" step="1" value="0">
           </label>
           <label>
             <span>轮廓强度</span>
-            <input id="edgeStrength" type="range" min="0" max="4" step="1" value="2">
+            <input id="edgeStrength" type="range" min="0" max="4" step="1" value="0">
           </label>
         </section>
 
@@ -91,14 +91,14 @@
           <h2>匹配</h2>
           <label>
             <span>最大颜色数</span>
-            <input id="maxColors" type="number" min="0" max="144" value="18">
+            <input id="maxColors" type="number" min="0" max="144" value="40">
           </label>
           <label class="check-row">
             <input id="dither" type="checkbox">
             <span>抖动渐变</span>
           </label>
           <label>
-            <span>透明底色</span>
+            <span>空白底色</span>
             <input id="backgroundColor" type="color" value="#ffffff">
           </label>
         </section>
@@ -159,6 +159,7 @@
               <thead>
                 <tr>
                   <th>色号</th>
+                  <th>盒号</th>
                   <th>HEX</th>
                   <th>数量</th>
                   <th>占比</th>
@@ -167,7 +168,7 @@
               </thead>
               <tbody id="statsBody">
                 <tr>
-                  <td colspan="5">还没有生成结果。</td>
+                  <td colspan="6">还没有生成结果。</td>
                 </tr>
               </tbody>
             </table>
