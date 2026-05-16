@@ -347,8 +347,7 @@ input[type="range"] {
   display: none;
   max-width: none;
   background: #ffffff;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
+  image-rendering: auto;
   transform-origin: top left;
 }
 

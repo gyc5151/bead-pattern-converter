@@ -33,6 +33,7 @@
     guideEvery: document.getElementById("guideEvery"),
     showCodes: document.getElementById("showCodes"),
     showGrid: document.getElementById("showGrid"),
+    exportScale: document.getElementById("exportScale"),
     convertBtn: document.getElementById("convertBtn"),
     downloadPng: document.getElementById("downloadPng"),
     downloadSvg: document.getElementById("downloadSvg"),
@@ -153,6 +154,14 @@
       control.addEventListener("change", scheduleConvert);
     });
 
+    els.exportScale.addEventListener("change", function () {
+      var exportScale = clampInt(els.exportScale.value, 1, 4);
+      els.exportScale.value = exportScale;
+      if (result) {
+        result.settings.exportScale = exportScale;
+      }
+    });
+
     els.styleMode.addEventListener("change", function () {
       applyStyleDefaults();
       scheduleConvert();
@@ -267,8 +276,8 @@
     }
     var availableWidth = Math.max(120, els.canvasShell.clientWidth - 28);
     var availableHeight = Math.max(120, els.canvasShell.clientHeight - 28);
-    var naturalWidth = els.patternCanvas.width || 1;
-    var naturalHeight = els.patternCanvas.height || 1;
+    var naturalWidth = parseFloat(els.patternCanvas.dataset.logicalWidth) || els.patternCanvas.width || 1;
+    var naturalHeight = parseFloat(els.patternCanvas.dataset.logicalHeight) || els.patternCanvas.height || 1;
     setPreviewZoom(Math.min(2.5, Math.max(0.25, Math.min(availableWidth / naturalWidth, availableHeight / naturalHeight))));
   }
 
@@ -287,8 +296,10 @@
     if (!result) {
       return;
     }
-    els.patternCanvas.style.width = Math.max(1, Math.round(els.patternCanvas.width * previewZoom)) + "px";
-    els.patternCanvas.style.height = Math.max(1, Math.round(els.patternCanvas.height * previewZoom)) + "px";
+    var logicalWidth = parseFloat(els.patternCanvas.dataset.logicalWidth) || els.patternCanvas.width || 1;
+    var logicalHeight = parseFloat(els.patternCanvas.dataset.logicalHeight) || els.patternCanvas.height || 1;
+    els.patternCanvas.style.width = Math.max(1, Math.round(logicalWidth * previewZoom)) + "px";
+    els.patternCanvas.style.height = Math.max(1, Math.round(logicalHeight * previewZoom)) + "px";
   }
 
   function zoomPreviewAt(clientX, clientY, nextZoom) {
@@ -506,6 +517,7 @@
     var guideEvery = clampInt(els.guideEvery.value, 0, 50);
     var simplifyLevel = clampInt(els.simplifyLevel.value, 0, 4);
     var edgeStrength = clampInt(els.edgeStrength.value, 0, 4);
+    var exportScale = clampInt(els.exportScale.value, 1, 4);
 
     els.gridWidth.value = width;
     els.gridHeight.value = height;
@@ -514,6 +526,7 @@
     els.guideEvery.value = guideEvery;
     els.simplifyLevel.value = simplifyLevel;
     els.edgeStrength.value = edgeStrength;
+    els.exportScale.value = exportScale;
 
     return {
       width: width,
@@ -530,7 +543,8 @@
       cellSize: cellSize,
       guideEvery: guideEvery,
       showCodes: els.showCodes.checked,
-      showGrid: els.showGrid.checked
+      showGrid: els.showGrid.checked,
+      exportScale: exportScale
     };
   }
 
@@ -1735,7 +1749,8 @@
       cellSize: result.settings.cellSize,
       showCodes: result.settings.showCodes,
       showGrid: result.settings.showGrid,
-      guideEvery: result.settings.guideEvery
+      guideEvery: result.settings.guideEvery,
+      scale: getPreviewRenderScale()
     });
     updatePreviewZoom();
 
@@ -1761,19 +1776,35 @@
       " 色";
   }
 
+  function getPreviewRenderScale() {
+    if (!result) {
+      return 2;
+    }
+    var logicalWidth = result.width * result.settings.cellSize + (result.settings.showGrid ? 1 : 0);
+    var logicalHeight = result.height * result.settings.cellSize + (result.settings.showGrid ? 1 : 0);
+    var maxDimension = 9000;
+    var scale = Math.min(3, maxDimension / Math.max(logicalWidth, logicalHeight));
+    return Math.max(1.5, scale);
+  }
+
   function drawPattern(canvas, options) {
     var width = result.width;
     var height = result.height;
     var cellSize = options.cellSize;
-    var canvasWidth = width * cellSize;
-    var canvasHeight = height * cellSize;
+    var scale = options.scale || 1;
+    var canvasWidth = width * cellSize + (options.showGrid ? 1 : 0);
+    var canvasHeight = height * cellSize + (options.showGrid ? 1 : 0);
     var ctx = canvas.getContext("2d");
 
-    canvas.width = canvasWidth + (options.showGrid ? 1 : 0);
-    canvas.height = canvasHeight + (options.showGrid ? 1 : 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    canvas.dataset.logicalWidth = canvasWidth;
+    canvas.dataset.logicalHeight = canvasHeight;
+    canvas.width = Math.max(1, Math.round(canvasWidth * scale));
+    canvas.height = Math.max(1, Math.round(canvasHeight * scale));
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
     ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
     for (var y = 0; y < height; y += 1) {
       for (var x = 0; x < width; x += 1) {
@@ -1966,17 +1997,35 @@
       return;
     }
     var canvas = document.createElement("canvas");
+    var exportScale = getSafePngScale(result.settings);
     drawPattern(canvas, {
       cellSize: result.settings.cellSize,
       showCodes: result.settings.showCodes,
       showGrid: result.settings.showGrid,
-      guideEvery: result.settings.guideEvery
+      guideEvery: result.settings.guideEvery,
+      scale: exportScale
     });
+    if (exportScale < result.settings.exportScale) {
+      setStatus("PNG 已按浏览器限制自动降到 " + exportScale + "× 导出。");
+    }
     canvas.toBlob(function (blob) {
       if (blob) {
-        downloadBlob(blob, safeFileName(sourceName) + "-拼豆图纸.png");
+        downloadBlob(blob, safeFileName(sourceName) + "-拼豆图纸-" + exportScale + "x.png");
+      } else {
+        setStatus("PNG 导出失败，请降低 PNG 倍率或格子像素。", true);
       }
     }, "image/png");
+  }
+
+  function getSafePngScale(settings) {
+    var requested = settings.exportScale || 1;
+    var logicalWidth = result.width * settings.cellSize + (settings.showGrid ? 1 : 0);
+    var logicalHeight = result.height * settings.cellSize + (settings.showGrid ? 1 : 0);
+    var maxDimension = 16000;
+    var maxPixels = 90000000;
+    var byDimension = Math.floor(maxDimension / Math.max(logicalWidth, logicalHeight));
+    var byPixels = Math.floor(Math.sqrt(maxPixels / (logicalWidth * logicalHeight)));
+    return Math.max(1, Math.min(requested, byDimension || 1, byPixels || 1));
   }
 
   function downloadSvg() {

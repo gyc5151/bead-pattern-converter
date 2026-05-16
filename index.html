@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>拼豆图纸转换器</title>
-    <link rel="stylesheet" href="styles.css?v=20260516-6">
+    <link rel="stylesheet" href="styles.css?v=20260516-7">
   </head>
   <body>
     <header class="app-header">
@@ -137,6 +137,15 @@
 
         <section class="control-section">
           <h2>导出</h2>
+          <label>
+            <span>PNG 倍率</span>
+            <select id="exportScale">
+              <option value="1">1× 标准</option>
+              <option value="2" selected>2× 高清</option>
+              <option value="3">3×</option>
+              <option value="4">4× 超清</option>
+            </select>
+          </label>
           <div class="button-stack">
             <button id="convertBtn" type="button">生成图纸</button>
             <button id="downloadPng" type="button" disabled>下载 PNG</button>
@@ -208,7 +217,7 @@
       </aside>
     </main>
 
-    <script src="palette.js?v=20260516-6"></script>
-    <script src="app.js?v=20260516-6"></script>
+    <script src="palette.js?v=20260516-7"></script>
+    <script src="app.js?v=20260516-7"></script>
   </body>
 </html>
