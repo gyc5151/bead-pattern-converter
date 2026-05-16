@@ -180,11 +180,11 @@
       }
       els.dither.checked = false;
     } else if (els.styleMode.value === "kids") {
-      if (maxColors > 24 || maxColors === 0) {
-        els.maxColors.value = 18;
+      if (maxColors > 32 || maxColors === 0) {
+        els.maxColors.value = 24;
       }
-      els.simplifyLevel.value = Math.max(parseInt(els.simplifyLevel.value, 10) || 0, 3);
-      els.edgeStrength.value = Math.max(parseInt(els.edgeStrength.value, 10) || 0, 2);
+      els.simplifyLevel.value = Math.max(parseInt(els.simplifyLevel.value, 10) || 0, 2);
+      els.edgeStrength.value = Math.max(parseInt(els.edgeStrength.value, 10) || 0, 1);
       els.dither.checked = false;
     } else if (els.styleMode.value === "simple") {
       if (maxColors === 0 || maxColors > 48) {
@@ -929,44 +929,49 @@
     var work = new Float32Array(samples);
     var simplify = settings.simplifyLevel;
     var edgeStrength = settings.edgeStrength;
-    var blurPasses = 0;
-    var cleanupPasses = simplify;
+    var smoothPasses = 0;
+    var smoothRadius = 1;
+    var smoothRange = 42;
+    var cleanupPasses = Math.min(2, simplify);
     var outlineMap = null;
     var outlineStrength = 0;
     var posterizeLevel = 0;
     var saturation = 1;
     var contrast = 1;
+    var edgeDarkenStrength = 0;
 
     if (settings.styleMode === "kids") {
-      blurPasses = 3 + simplify;
-      cleanupPasses = 3 + simplify * 2;
-      edgeStrength += 1;
-      outlineStrength = Math.max(2, edgeStrength);
-      posterizeLevel = Math.max(4, 7 - simplify);
-      saturation = 1.22;
-      contrast = 1.12;
+      smoothPasses = 1 + Math.floor(simplify / 2);
+      smoothRange = 38;
+      cleanupPasses = 1 + Math.floor(simplify / 2);
+      outlineStrength = edgeStrength >= 3 ? edgeStrength : 0;
+      saturation = 1.08;
+      contrast = 1.04;
     } else if (settings.styleMode === "simple") {
-      blurPasses = simplify > 0 ? 1 + Math.floor(simplify / 3) : 0;
-      saturation = 1.04;
-      contrast = 1.03;
+      smoothPasses = simplify > 0 ? 1 : 0;
+      smoothRange = 48;
+      cleanupPasses = simplify >= 3 ? 1 : 0;
+      saturation = 1.02;
+      contrast = 1.02;
     } else if (settings.styleMode === "cartoon") {
-      blurPasses = 1 + Math.ceil(simplify / 2);
-      cleanupPasses = 1 + simplify;
-      edgeStrength += 1;
-      saturation = 1.18;
-      contrast = 1.08;
+      smoothPasses = 1 + Math.floor(simplify / 2);
+      smoothRange = 46;
+      cleanupPasses = 1 + Math.floor(simplify / 2);
+      outlineStrength = edgeStrength >= 2 ? edgeStrength : 0;
+      saturation = 1.12;
+      contrast = 1.05;
     } else if (settings.styleMode === "outline") {
-      blurPasses = Math.max(1, Math.ceil(simplify / 2));
-      cleanupPasses = simplify;
-      edgeStrength += 2;
-      outlineStrength = edgeStrength;
+      smoothPasses = Math.max(1, Math.floor(simplify / 2));
+      smoothRange = 40;
+      cleanupPasses = Math.min(2, simplify);
+      outlineStrength = edgeStrength + 1;
       saturation = 1.08;
       contrast = 1.08;
     }
 
-    var edgeMap = edgeStrength > 0 ? computeEdgeMap(samples, width, height) : null;
-    if (blurPasses > 0) {
-      work = boxBlurSamples(work, width, height, blurPasses);
+    var edgeMap = outlineStrength > 0 || edgeDarkenStrength > 0 ? computeEdgeMap(samples, width, height) : null;
+    if (smoothPasses > 0) {
+      work = edgeAwareSmoothSamples(work, width, height, smoothPasses, smoothRadius, smoothRange);
     }
     if (saturation !== 1 || contrast !== 1) {
       adjustColor(work, saturation, contrast);
@@ -974,8 +979,8 @@
     if (posterizeLevel > 0) {
       posterizeSamples(work, posterizeLevel);
     }
-    if (edgeMap) {
-      applyEdgeDarkening(work, edgeMap, edgeStrength);
+    if (edgeMap && edgeDarkenStrength > 0) {
+      applyEdgeDarkening(work, edgeMap, edgeDarkenStrength);
     }
     if (outlineStrength > 0 && edgeMap) {
       outlineMap = buildOutlineMap(edgeMap, width, height, outlineStrength);
@@ -1024,6 +1029,65 @@
           dst[out] = totalR / totalWeight;
           dst[out + 1] = totalG / totalWeight;
           dst[out + 2] = totalB / totalWeight;
+        }
+      }
+      var swap = src;
+      src = dst;
+      dst = swap;
+    }
+
+    return src;
+  }
+
+  function edgeAwareSmoothSamples(samples, width, height, passes, radius, colorRange) {
+    var src = new Float32Array(samples);
+    var dst = new Float32Array(samples.length);
+    var rangeSq = colorRange * colorRange;
+
+    for (var pass = 0; pass < passes; pass += 1) {
+      for (var y = 0; y < height; y += 1) {
+        for (var x = 0; x < width; x += 1) {
+          var center = (y * width + x) * 3;
+          var cr = src[center];
+          var cg = src[center + 1];
+          var cb = src[center + 2];
+          var totalR = cr * 2.2;
+          var totalG = cg * 2.2;
+          var totalB = cb * 2.2;
+          var totalWeight = 2.2;
+
+          for (var oy = -radius; oy <= radius; oy += 1) {
+            var py = y + oy;
+            if (py < 0 || py >= height) {
+              continue;
+            }
+            for (var ox = -radius; ox <= radius; ox += 1) {
+              if (ox === 0 && oy === 0) {
+                continue;
+              }
+              var px = x + ox;
+              if (px < 0 || px >= width) {
+                continue;
+              }
+              var i = (py * width + px) * 3;
+              var dr = src[i] - cr;
+              var dg = src[i + 1] - cg;
+              var db = src[i + 2] - cb;
+              var colorDistanceSq = dr * dr + dg * dg + db * db;
+              var spatialWeight = ox === 0 || oy === 0 ? 1 : 0.72;
+              var colorWeight = Math.exp(-colorDistanceSq / (2 * rangeSq));
+              var weight = spatialWeight * colorWeight;
+
+              totalR += src[i] * weight;
+              totalG += src[i + 1] * weight;
+              totalB += src[i + 2] * weight;
+              totalWeight += weight;
+            }
+          }
+
+          dst[center] = totalR / totalWeight;
+          dst[center + 1] = totalG / totalWeight;
+          dst[center + 2] = totalB / totalWeight;
         }
       }
       var swap = src;
